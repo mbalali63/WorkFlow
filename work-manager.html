@@ -1,0 +1,285 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>LifeFlow • Your Personal OS</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+  <style>
+    :root { --bg: #0f0f0f; --card: #1a1a1a; --text: #eee; --accent: #00b4d8; --border: #333; }
+    [data-theme="light"] { --bg: #f8f9fa; --card: #ffffff; --text: #222; --accent: #0077b6; --border: #ddd; }
+    * { box-sizing: border-box; }
+    body { margin:0; font-family: system-ui, sans-serif; background:var(--bg); color:var(--text); line-height:1.5; }
+    header { background:var(--card); padding:0.8rem 1.5rem; display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid var(--border); position:sticky; top:0; z-index:100; }
+    nav button { margin:0 0.25rem; padding:0.6rem 1.1rem; border:none; background:var(--card); color:var(--text); border-radius:8px; cursor:pointer; }
+    nav button.active, button:hover { background:var(--accent); color:white; }
+    .container { max-width:1600px; margin:0 auto; padding:1.5rem; }
+    .page { display:none; }
+    .page.active { display:block; }
+    .card { background:var(--card); border-radius:12px; padding:1.5rem; margin-bottom:1.5rem; border:1px solid var(--border); }
+    .grid { display:grid; grid-template-columns:repeat(auto-fit, minmax(300px, 1fr)); gap:1.5rem; }
+    .item { background:#222; padding:1rem; border-radius:8px; margin-bottom:0.75rem; border-left:4px solid var(--accent); }
+    [data-theme="light"] .item { background:#f1f1f1; color:#222; }
+    button { padding:0.6rem 1.2rem; border:none; background:var(--accent); color:white; border-radius:8px; cursor:pointer; }
+    input, select, textarea { width:100%; padding:0.75rem; margin:0.4rem 0; background:#222; border:1px solid var(--border); border-radius:8px; color:white; }
+    [data-theme="light"] input, [data-theme="light"] select, [data-theme="light"] textarea { background:white; color:#222; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>LifeFlow</h1>
+    <nav id="tabs"></nav>
+    <div>
+      <button onclick="toggleTheme()">🌗</button>
+      <button onclick="exportJSON()">Export JSON</button>
+      <button onclick="document.getElementById('importInput').click()">Import Excel/JSON</button>
+      <input type="file" id="importInput" style="display:none" onchange="handleFileImport(event)">
+    </div>
+  </header>
+
+  <div class="container">
+    <!-- Dashboard -->
+    <div id="dashboard" class="page active">
+      <h2>Dashboard</h2>
+      <div class="grid">
+        <div class="card"><h3>Long-term Targets</h3><div id="dashLT"></div></div>
+        <div class="card"><h3>Active Short-term</h3><div id="dashST"></div></div>
+        <div class="card"><h3>Live Prices</h3><div id="livePrices"></div></div>
+        <div class="card"><h3>Today's Tasks</h3><div id="todayTasks"></div></div>
+      </div>
+    </div>
+
+    <!-- Long-term -->
+    <div id="longterm" class="page">
+      <h2>Long-term Targets</h2>
+      <div id="ltList" class="grid"></div>
+    </div>
+
+    <!-- Short-term -->
+    <div id="shortterm" class="page">
+      <h2>Short-term Targets</h2>
+      <div id="stList" class="grid"></div>
+    </div>
+
+    <!-- Projects -->
+    <div id="projects" class="page">
+      <h2>Projects</h2>
+      <div id="projList" class="grid"></div>
+    </div>
+
+    <!-- Tasks -->
+    <div id="tasks" class="page">
+      <h2>Tasks</h2>
+      <div style="margin-bottom:1rem;">
+        <button onclick="setTaskView('kanban')">Kanban</button>
+        <button onclick="setTaskView('list')">List</button>
+      </div>
+      <div id="taskKanban" class="grid"></div>
+      <div id="taskList" style="display:none;"></div>
+    </div>
+
+    <!-- Daily Plan, Notes, Links (basic for now) -->
+    <div id="daily" class="page"><h2>Daily Plan</h2><textarea style="height:70vh;width:100%;"></textarea></div>
+    <div id="notes" class="page"><h2>Notes</h2><textarea id="mainNotes" style="height:70vh;width:100%;"></textarea></div>
+    <div id="links" class="page"><h2>Quick Links</h2><div id="linksContainer"></div></div>
+  </div>
+
+  <script>
+    let appData = {
+      longTargets: [],
+      shortTargets: [],
+      projects: [],
+      tasks: [],
+      notes: "",
+      links: [
+        {name:"TradingView", url:"https://www.tradingview.com"},
+        {name:"Excel", url:"#"} // you can add file:// or cloud links
+      ]
+    };
+
+    function loadData() {
+      const saved = localStorage.getItem('lifeFlowData');
+      if (saved) appData = JSON.parse(saved);
+    }
+
+    function saveData() {
+      localStorage.setItem('lifeFlowData', JSON.stringify(appData));
+    }
+
+    function renderTabs() {
+      const tabsHTML = `
+        <button onclick="switchPage('dashboard')" class="active">Dashboard</button>
+        <button onclick="switchPage('longterm')">Long-term</button>
+        <button onclick="switchPage('shortterm')">Short-term</button>
+        <button onclick="switchPage('projects')">Projects</button>
+        <button onclick="switchPage('tasks')">Tasks</button>
+        <button onclick="switchPage('daily')">Daily Plan</button>
+        <button onclick="switchPage('notes')">Notes</button>
+        <button onclick="switchPage('links')">Links</button>
+      `;
+      document.getElementById('tabs').innerHTML = tabsHTML;
+    }
+
+    function switchPage(page) {
+      document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+      document.getElementById(page).classList.add('active');
+      if (page === 'tasks') renderTasks();
+      if (page === 'dashboard') renderDashboard();
+    }
+
+    function toggleTheme() {
+      const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
+      document.documentElement.setAttribute('data-theme', isDark ? 'light' : 'dark');
+    }
+
+    // Render functions
+    function renderDashboard() {
+      document.getElementById('dashLT').innerHTML = appData.longTargets.map(t => `<div class="item">${t.name}</div>`).join('');
+      document.getElementById('dashST').innerHTML = appData.shortTargets.slice(0,5).map(t => `<div class="item">${t.name} <small>(${t.relatedLT})</small></div>`).join('');
+      // Live prices (demo)
+      document.getElementById('livePrices').innerHTML = `<p>BTC: $68,420 | AAPL: $238 | Gold: $2,650 (demo - can be made real)</p>`;
+    }
+
+    function renderLongTerm() {
+      const container = document.getElementById('ltList');
+      container.innerHTML = appData.longTargets.map(lt => `
+        <div class="card">
+          <h3>${lt.name}</h3>
+          <small>Related Short-term: ${appData.shortTargets.filter(st => st.relatedLT === lt.name).length}</small>
+        </div>
+      `).join('');
+    }
+
+    function renderShortTerm() {
+      const container = document.getElementById('stList');
+      container.innerHTML = appData.shortTargets.map(st => `
+        <div class="card">
+          <h3>${st.name}</h3>
+          <small>Linked to: ${st.relatedLT}</small>
+          <p>Projects: ${appData.projects.filter(p => p.relatedST === st.name).length}</p>
+        </div>
+      `).join('');
+    }
+
+    function renderProjects() {
+      const container = document.getElementById('projList');
+      container.innerHTML = appData.projects.map(p => `
+        <div class="card">
+          <h3>${p.name}</h3>
+          <small>Linked to ST: ${p.relatedST}</small>
+          <p>Tasks: ${appData.tasks.filter(t => t.relatedProject === p.name).length}</p>
+        </div>
+      `).join('');
+    }
+
+    function renderTasks(view = 'kanban') {
+      // Simple Kanban for now
+      const kanban = document.getElementById('taskKanban');
+      kanban.innerHTML = `
+        <div class="card">To Do<br>${appData.tasks.filter(t=>!t.status || t.status==='todo').map(t=>`<div class="item">${t.name}</div>`).join('')}</div>
+        <div class="card">In Progress<br>${appData.tasks.filter(t=>t.status==='progress').map(t=>`<div class="item">${t.name}</div>`).join('')}</div>
+        <div class="card">Done<br>${appData.tasks.filter(t=>t.status==='done').map(t=>`<div class="item">${t.name}</div>`).join('')}</div>
+      `;
+    }
+
+    function renderAll() {
+      renderLongTerm();
+      renderShortTerm();
+      renderProjects();
+      renderDashboard();
+    }
+
+    // Import handler (Excel + JSON)
+    async function handleFileImport(e) {
+      const file = e.target.files[0];
+      if (!file) return;
+
+      if (file.name.endsWith('.json')) {
+        const text = await file.text();
+        appData = JSON.parse(text);
+        saveData();
+        renderAll();
+        alert("JSON imported successfully!");
+        return;
+      }
+
+      // Excel
+      const reader = new FileReader();
+      reader.onload = function(ev) {
+        const wb = XLSX.read(ev.target.result, {type: 'array'});
+        
+        // Long Term
+        if (wb.Sheets['Long Term Targets']) {
+          appData.longTargets = XLSX.utils.sheet_to_json(wb.Sheets['Long Term Targets']).map(row => ({name: row['LT1'] || row.name || Object.values(row)[0]}));
+        }
+        // Short Term
+        if (wb.Sheets['Short Term Targets']) {
+          appData.shortTargets = XLSX.utils.sheet_to_json(wb.Sheets['Short Term Targets']).map(row => ({
+            name: row['Target name'] || Object.values(row)[0],
+            relatedLT: row['Related Long term target'] || ''
+          }));
+        }
+        // Projects
+        if (wb.Sheets['Projects']) {
+          appData.projects = XLSX.utils.sheet_to_json(wb.Sheets['Projects']).map(row => ({
+            name: row['Project name'] || Object.values(row)[0],
+            relatedST: row['Related short term target'] || ''
+          }));
+        }
+        // Tasks
+        if (wb.Sheets['Tasks']) {
+          appData.tasks = XLSX.utils.sheet_to_json(wb.Sheets['Tasks']).map(row => ({
+            name: row['Task name'] || Object.values(row)[0],
+            relatedProject: row['Related Project'] || '',
+            status: 'todo'
+          }));
+        }
+
+        saveData();
+        renderAll();
+        alert("✅ Excel imported and hierarchy mapped successfully!");
+      };
+      reader.readAsArrayBuffer(file);
+    }
+
+    function exportJSON() {
+      const blob = new Blob([JSON.stringify(appData, null, 2)], {type: "application/json"});
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url; a.download = "LifeFlow-Backup.json"; a.click();
+    }
+
+    // Seed sample data from your description
+    function seedSampleData() {
+      appData.longTargets = [{name:"LT1"}, {name:"LT2"}, {name:"LT3"}];
+      appData.shortTargets = [
+        {name:"ST1", relatedLT:"LT1"},
+        {name:"ST2", relatedLT:"LT1"},
+        {name:"ST3", relatedLT:"LT2"},
+        {name:"ST4", relatedLT:"LT3"}
+      ];
+      appData.projects = [
+        {name:"Proj1", relatedST:"ST1"},
+        {name:"Prj2", relatedST:"ST2"},
+        {name:"Prj3", relatedST:"ST3"},
+        {name:"Prj4", relatedST:"ST4"},
+        {name:"Prj5", relatedST:"ST2"}
+      ];
+      appData.tasks = [
+        {name:"Tsk1", relatedProject:"Proj1", status:"todo"},
+        {name:"Tsk2", relatedProject:"Prj3", status:"todo"},
+        {name:"Tsk3", relatedProject:"Proj1", status:"progress"},
+        {name:"Tsk4", relatedProject:"Prj4", status:"todo"},
+        {name:"Tsk5", relatedProject:"Prj5", status:"done"}
+      ];
+    }
+
+    // Init
+    loadData();
+    if (appData.longTargets.length === 0) seedSampleData();
+    renderTabs();
+    switchPage('dashboard');
+    renderAll();
+  </script>
+</body>
+</html>
